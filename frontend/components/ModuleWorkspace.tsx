@@ -6,6 +6,7 @@ import type { FieldDef, ModuleDef } from '@/lib/modules';
 
 const authHeaders = () => ({ 'Content-Type':'application/json', Authorization:`Bearer ${localStorage.getItem('qlda_token') || ''}` });
 const approvable = new Set(['documents','document-revisions','quality','changes','claims','contracts','payments','procurement','budget-versions']);
+const nested = new Set(['project-members','checklists','document-revisions']);
 const workflow: Record<string, Record<string,string[]>> = {
   documents:{draft:['submitted'],submitted:['under_review','rejected'],under_review:['approved','rejected'],rejected:['submitted'],approved:['closed']},
   'document-revisions':{submitted:['under_review','rejected'],under_review:['approved','rejected'],rejected:['submitted']},
@@ -63,23 +64,28 @@ export default function ModuleWorkspace({module}:{module:ModuleDef}) {
 
   if (module.special==='dashboard') return <DashboardPanel/>;
   const readOnly = ['audit-logs','approval-actions'].includes(activeEndpoint);
+  const isNested = nested.has(activeEndpoint);
+  const needsProject = module.projectScoped || isNested;
   const columns = useMemo(()=>Array.from(new Set(['id',...fields.map(f=>f.key),'created_at'])),[fields]);
 
   const load = async () => {
-    if (!activeEndpoint) return; setError(''); const params = new URLSearchParams();
-    if (projectId) params.set('project_id',projectId); if (query) params.set('q',query);
-    const res = await fetch(`/api/data/${activeEndpoint}?${params}`,{headers:authHeaders()});
+    if (!activeEndpoint) return;
+    if (isNested && !projectId) return setError('Nhập Project ID để tải dữ liệu thuộc dự án.');
+    setError(''); const params = new URLSearchParams();
+    if (projectId) params.set('project_id',projectId); if (query && !isNested) params.set('q',query);
+    const base = isNested ? `/api/scoped/${activeEndpoint}` : `/api/data/${activeEndpoint}`;
+    const res = await fetch(`${base}?${params}`,{headers:authHeaders()});
     if (res.status===401) return setError('Phiên đăng nhập đã hết hạn.'); if (!res.ok) return setError(await res.text()); setRows(await res.json());
   };
-  useEffect(()=>{load();},[activeEndpoint]);
+  useEffect(()=>{ if(!isNested) load(); },[activeEndpoint]);
 
   const switchEndpoint = (endpoint:string,nextFields:FieldDef[]) => { setActiveEndpoint(endpoint); setFields(nextFields); setForm({}); setEditingId(null); setShowForm(false); setRows([]); setSpecialResult(null); };
   const upload = async (file:File,key:string) => { const body=new FormData(); body.append('file',file); const res=await fetch('/api/files/upload',{method:'POST',headers:{Authorization:`Bearer ${localStorage.getItem('qlda_token') || ''}`},body}); if(!res.ok)return setError(await res.text()); const data=await res.json(); setForm(prev=>({...prev,[key]:data.url})); };
-  const submit = async (e:React.FormEvent) => { e.preventDefault(); setBusy(true); setError(''); const url=editingId?`/api/data/${activeEndpoint}/${editingId}`:`/api/data/${activeEndpoint}`; const res=await fetch(url,{method:editingId?'PATCH':'POST',headers:authHeaders(),body:JSON.stringify(form)}); setBusy(false); if(!res.ok)return setError(await res.text()); setForm({});setEditingId(null);setShowForm(false);await load(); };
+  const submit = async (e:React.FormEvent) => { e.preventDefault(); setBusy(true); setError(''); const payload={...form}; if(projectId && fields.some(f=>f.key==='project_id') && !payload.project_id) payload.project_id=projectId; const url=editingId?`/api/data/${activeEndpoint}/${editingId}`:`/api/data/${activeEndpoint}`; const res=await fetch(url,{method:editingId?'PATCH':'POST',headers:authHeaders(),body:JSON.stringify(payload)}); setBusy(false); if(!res.ok)return setError(await res.text()); setForm({});setEditingId(null);setShowForm(false);await load(); };
   const edit = (row:any) => { const values:Record<string,any>={}; fields.forEach(f=>values[f.key]=row[f.key]??''); setForm(values);setEditingId(row.id);setShowForm(true); };
   const remove = async (id:number) => { if(!confirm('Xóa bản ghi này?'))return; const res=await fetch(`/api/data/${activeEndpoint}/${id}`,{method:'DELETE',headers:authHeaders()}); if(!res.ok)return setError(await res.text());await load(); };
   const transition = async (row:any,target:string) => { const comment=prompt(`Ghi chú chuyển ${row.status} → ${target}`) || ''; const res=await fetch('/api/workflow/transition',{method:'POST',headers:authHeaders(),body:JSON.stringify({module:activeEndpoint,entity_id:row.id,to_status:target,comment})}); if(!res.ok)return setError(await res.text());await load(); };
-  const exportCsv = async () => { const qs=projectId?`?project_id=${projectId}`:''; const res=await fetch(`/api/export/${activeEndpoint}.csv${qs}`,{headers:authHeaders()}); if(!res.ok)return setError(await res.text()); const blob=await res.blob(); const url=URL.createObjectURL(blob); const a=document.createElement('a');a.href=url;a.download=`${activeEndpoint}.csv`;a.click();URL.revokeObjectURL(url); };
+  const exportCsv = async () => { if(isNested)return setError('Dữ liệu con được bảo vệ theo Project ID; export dùng ở module chính.'); const qs=projectId?`?project_id=${projectId}`:''; const res=await fetch(`/api/export/${activeEndpoint}.csv${qs}`,{headers:authHeaders()}); if(!res.ok)return setError(await res.text()); const blob=await res.blob(); const url=URL.createObjectURL(blob); const a=document.createElement('a');a.href=url;a.download=`${activeEndpoint}.csv`;a.click();URL.revokeObjectURL(url); };
   const runAutomation = async () => { const qs=projectId?`?project_id=${projectId}`:'';const res=await fetch(`/api/automation/run${qs}`,{method:'POST',headers:authHeaders()});setSpecialResult(await res.json()); };
   const runRisk = async () => { if(!projectId)return setError('Nhập Project ID để phân tích rủi ro.');const res=await fetch(`/api/ai/risk-summary?project_id=${projectId}`,{headers:authHeaders()});setSpecialResult(await res.json()); };
   const runWorkload = async () => { if(!projectId)return setError('Nhập Project ID để xem workload.');const res=await fetch(`/api/resources/workload?project_id=${projectId}`,{headers:authHeaders()});setSpecialResult(await res.json()); };
@@ -87,8 +93,8 @@ export default function ModuleWorkspace({module}:{module:ModuleDef}) {
   return <div className="workspace">
     <div className="toolbar wrap">
       <Link className="link-button ghost-link" href="/">← Tổng quan</Link>
-      {module.projectScoped&&<input placeholder="Project ID" value={projectId} onChange={e=>setProjectId(e.target.value)}/>}<input placeholder="Tìm trong module" value={query} onChange={e=>setQuery(e.target.value)}/>
-      <button onClick={load}>Tìm / Làm mới</button><button onClick={exportCsv}>Xuất CSV</button>
+      {needsProject&&<input placeholder="Project ID" value={projectId} onChange={e=>setProjectId(e.target.value)}/>}<input placeholder="Tìm trong module" value={query} onChange={e=>setQuery(e.target.value)} disabled={isNested}/>
+      <button onClick={load}>Tìm / Làm mới</button>{!isNested&&<button onClick={exportCsv}>Xuất CSV</button>}
       {!readOnly&&activeEndpoint&&<button onClick={()=>{setShowForm(!showForm);setEditingId(null);setForm({});}}>+ Thêm mới</button>}
       {module.slug==='resources'&&<button onClick={runWorkload}>Workload</button>}
       {module.special==='automation'&&<><button onClick={runAutomation}>Chạy cảnh báo</button><button onClick={runRisk}>Risk Summary</button></>}
