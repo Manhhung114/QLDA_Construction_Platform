@@ -7,14 +7,14 @@ on:
     branches: [main]
 
 jobs:
-  backend-v2:
+  backend-final:
     runs-on: ubuntu-latest
     env:
-      DATABASE_URL: sqlite:////tmp/qlda_v2_test.db
+      DATABASE_URL: sqlite:////tmp/qlda_final_test.db
       UPLOAD_DIR: /tmp/qlda_uploads
       ADMIN_USERNAME: admin
       ADMIN_PASSWORD: TestPass123!
-      JWT_SECRET: ci-test-secret-v2
+      JWT_SECRET: ci-test-secret-final
       ENVIRONMENT: test
     steps:
       - uses: actions/checkout@v4
@@ -22,7 +22,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install -r backend/requirements.txt pytest httpx
-      - run: PYTHONPATH=backend pytest -q backend/tests/test_v2.py
+      - run: PYTHONPATH=backend pytest -q backend/tests/test_final.py
 
   frontend-build:
     runs-on: ubuntu-latest

@@ -1,4 +1,4 @@
 #!/bin/sh
 set -eu
 alembic upgrade head
-exec uvicorn app.v2:app --host 0.0.0.0 --port "${PORT:-8000}" --proxy-headers
+exec uvicorn app.final:app --host 0.0.0.0 --port "${PORT:-8000}" --proxy-headers

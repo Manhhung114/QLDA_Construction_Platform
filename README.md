@@ -1,123 +1,116 @@
-# QLDA Construction Platform
+# QLDA Construction Platform V2
 
-Nền tảng **Construction Project Management** mới, chạy độc lập với hệ thống QLDA hiện tại. V1 triển khai đủ 12 nhóm module trên một mô hình dữ liệu chung, có đăng nhập JWT, PostgreSQL riêng, audit trail, upload file, workflow, dashboard, automation và risk summary.
+Nền tảng quản lý dự án xây dựng mới, tách hoàn toàn khỏi QLDA cũ. V2 hướng tới **production beta**: 12 module dùng chung PostgreSQL, authentication, project RBAC, workflow phê duyệt, audit trail, file storage, dashboard, automation và các góc nhìn Kanban/Gantt/Calendar.
 
-## 12 module V1
+## 12 module
 
-| # | Module | Chức năng đã có trong V1 |
+| # | Module | Phạm vi V2 |
 |---|---|---|
-| 1 | Project & Portfolio | Dự án, ngân sách, thời gian, PM, trạng thái; API portfolio tổng hợp sức khỏe từng dự án |
-| 2 | Task & WBS | WBS, task, assignee, priority, deadline, baseline, progress, predecessor |
-| 3 | Schedule | Activity, planned/actual dates, milestone, progress, critical flag, predecessor IDs |
-| 4 | Resource & Time | Resource, capacity, cost rate, timesheet |
-| 5 | BOQ & Cost Control | BOQ, budget, actual quantity/amount, cost entries, variance dashboard |
-| 6 | Contract & Procurement | Contract, contractor, value, duration; tự tính end date từ start date + duration; procurement orders |
-| 7 | Document Control | Document number, discipline, revision, status, upload file; lịch sử document revisions |
-| 8 | Quality | RFI, NCR, INS, Material, Test, Work Inspection dùng chung workflow trạng thái |
-| 9 | Change Management | VO/change, cost impact, time impact, submitted/approved dates |
-| 10 | Collaboration | Comment theo entity, notifications |
-| 11 | Dashboard & BI | Task overdue, hồ sơ chờ, quality mở, VO chờ, budget/actual/variance, contract value, portfolio summary |
-| 12 | Automation & AI | Workflow rules, cảnh báo task/quality quá hạn, hợp đồng sắp hết hạn; deterministic AI-style risk summary |
+| 1 | Project & Portfolio | Project, trạng thái, ngân sách, project members/roles, portfolio health |
+| 2 | Task & WBS | WBS, task, priority, baseline, progress, checklist, FS/SS/FF/SF dependency, Kanban kéo-thả |
+| 3 | Schedule | Planned/actual, milestone, predecessor, Gantt, CPM/critical path tính từ dependency |
+| 4 | Resource & Time | Resource, capacity, assignment, allocation, timesheet, workload planned/actual |
+| 5 | BOQ & Cost Control | BOQ, budget versions, actual/commitment/forecast, variance, Excel/CSV import-export |
+| 6 | Contract & Procurement | Contract, tự tính end date, payment certificate, procurement, workflow |
+| 7 | Document Control | Document, revision, file, transmittal, approve/reject/close history |
+| 8 | Quality | RFI, NCR, INS, material, test, work inspection, deadline và workflow |
+| 9 | Change Management | VO/change, cost/time impact, claim, workflow |
+| 10 | Collaboration | Comment theo entity, notification, audit trail |
+| 11 | Dashboard & BI | KPI, overdue, cost variance, portfolio health, CSV export, global search |
+| 12 | Automation & AI | Workflow rules, overdue/contract alerts, saved rule engine, deterministic risk summary |
 
-Ngoài 12 module còn có **User/Auth, file storage và immutable Audit Log** làm lớp nền tảng.
+Các lớp nền tảng: User/Auth, JWT, project-level permission, immutable audit logs, upload hash SHA-256, extension allow-list, Alembic, health/readiness endpoints, Docker và CI.
 
-## Kiến trúc
+## Góc nhìn trực quan
+
+- **Kanban**: kéo thả task giữa `todo`, `in_progress`, `review`, `done`.
+- **Gantt + CPM**: backend tính Early/Late Start/Finish, Total Float và Critical Path; frontend hiển thị timeline.
+- **Calendar**: task start/deadline, milestone, quality due date, contract expiry, procurement expected date.
+- **Portfolio**: health `green/amber/red` theo các chỉ số chậm tiến độ, quality và VO tồn.
+
+## Workflow
+
+Các nhóm hồ sơ có workflow kiểm soát, ví dụ:
 
 ```text
-Browser
-   |
-   v
-Next.js :3000
-   |  /api/* rewrite
-   v
-FastAPI :8000 ---- /uploads
-   |
-   v
-PostgreSQL
+DRAFT -> SUBMITTED -> UNDER_REVIEW -> APPROVED -> CLOSED
+                         |              ^
+                         v              |
+                      REJECTED -> SUBMITTED
 ```
 
-Trên VPS, Docker Compose chỉ bind frontend/backend vào `127.0.0.1`, vì vậy có thể đặt Nginx hiện có phía trước mà không mở port mới ra Internet.
+Mỗi chuyển trạng thái được ghi `approval_actions` và `audit_logs`. Với module phải phê duyệt, không đổi trạng thái trực tiếp qua PATCH; phải gọi Workflow Transition.
 
-## Chạy trên VPS để kiểm tra bản mới
+## Import / Export
+
+- Import `.csv` hoặc `.xlsx` cho các module nghiệp vụ chính.
+- Header dùng field API; có thể **Export CSV** dữ liệu hiện hữu trước để làm template.
+- Có `project_id` override khi import theo dự án.
+
+## Chạy local / VPS bằng Docker
 
 ```bash
 git clone https://github.com/Manhhung114/QLDA_Construction_Platform.git
 cd QLDA_Construction_Platform
 cp .env.example .env
-nano .env
-# Đổi POSTGRES_PASSWORD, JWT_SECRET, ADMIN_PASSWORD trước khi chạy.
+# đổi POSTGRES_PASSWORD, JWT_SECRET, ADMIN_PASSWORD
 docker compose up -d --build
 ```
 
-Kiểm tra:
+Mặc định:
 
-```bash
-docker compose ps
-curl http://127.0.0.1:8100/health
-curl -I http://127.0.0.1:3001
+- Frontend: `127.0.0.1:3001`
+- Backend: `127.0.0.1:8100`
+- API health: `http://127.0.0.1:8100/health`
+- Swagger: `http://127.0.0.1:8100/docs`
+
+DB và uploads dùng volume riêng, không liên quan database QLDA cũ.
+
+## API đáng chú ý
+
+```text
+POST /api/auth/login
+GET  /api/auth/me
+GET|POST /api/auth/users
+GET|POST|PATCH|DELETE /api/data/{module}
+POST /api/workflow/transition
+GET  /api/workflow/{module}/{entity_id}/history
+GET  /api/dashboard/summary
+GET  /api/portfolio/summary
+GET  /api/resources/workload
+GET  /api/schedule/cpm
+GET  /api/calendar
+GET  /api/search
+POST /api/import/{module}
+GET  /api/export/{module}.csv
+POST /api/automation/run
+POST /api/automation/rules/run
+GET  /api/ai/risk-summary
 ```
 
-### Nginx cho subdomain beta
+## Railway
 
-Ví dụ dùng `beta.tenmien.vn` trỏ cùng IP VPS:
+Xem **[docs/RAILWAY_DEPLOY.md](docs/RAILWAY_DEPLOY.md)**. Mô hình đề xuất dùng một Railway Project với PostgreSQL + Backend + Frontend; Backend có persistent volume `/data` cho uploads và giao tiếp Frontend→Backend qua Railway private network.
 
-```nginx
-server {
-    listen 80;
-    server_name beta.tenmien.vn;
+## CI
 
-    client_max_body_size 50m;
+GitHub Actions kiểm tra:
 
-    location / {
-        proxy_pass http://127.0.0.1:3001;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
+1. Backend end-to-end test trên SQLite.
+2. Next.js production build.
+3. Docker build cho backend và frontend.
 
-Sau đó cấp SSL bằng công cụ/cấu hình SSL đang dùng trên VPS. Không cần thay đổi site production hiện tại.
+Branch phát triển hiện tại: `v2-production-beta`. Chỉ merge vào `main` sau khi CI xanh.
 
-## Đăng nhập lần đầu
+## Production checklist
 
-Tài khoản quản trị được tạo tự động ở lần khởi động đầu theo:
+Trước khi dùng dữ liệu thật quy mô lớn:
 
-```env
-ADMIN_USERNAME=admin
-ADMIN_PASSWORD=<giá trị trong .env>
-```
-
-Không sử dụng mật khẩu mặc định khi đưa subdomain beta ra Internet.
-
-## API chính
-
-- `POST /api/auth/login`
-- `GET /api/auth/me`
-- `POST /api/auth/users` — admin
-- `GET|POST /api/data/{module}`
-- `GET|PATCH|DELETE /api/data/{module}/{id}`
-- `POST /api/files/upload`
-- `GET /api/dashboard/summary`
-- `GET /api/portfolio/summary`
-- `POST /api/workflow/transition`
-- `POST /api/automation/run`
-- `GET /api/ai/risk-summary?project_id=...`
-- `GET /docs` — Swagger của FastAPI (qua backend port nội bộ hoặc cấu hình Nginx riêng khi cần)
-
-Các data endpoint hỗ trợ: `projects`, `wbs`, `tasks`, `schedule`, `resources`, `timesheets`, `boq`, `costs`, `contracts`, `procurement`, `documents`, `document-revisions`, `quality`, `changes`, `comments`, `notifications`, `workflow-rules`, `audit-logs`.
-
-## Quy tắc dữ liệu
-
-- Hệ thống mới dùng **database và Docker volumes riêng** (`qlda_new_pgdata`, `qlda_new_uploads`).
-- Không kết nối hoặc ghi vào database của QLDA cũ.
-- Mọi create/update/delete qua generic data API đều ghi `audit_logs`.
-- `audit-logs` không cho sửa/xóa qua API.
-- Contract tự suy ra `end_date = start_date + duration_days` nếu người dùng chưa nhập ngày kết thúc.
-- File upload được lưu ở volume riêng và trả URL `/uploads/...`.
-
-## Trạng thái V1
-
-V1 là **functional beta của đủ 12 module**, phù hợp để chạy ở subdomain beta, nhập dữ liệu mẫu và chốt workflow/nghiệp vụ thực tế trước khi thay production. Trước khi dùng production diện rộng nên bổ sung schema migrations versioned, backup tự động, test suite/CI, granular RBAC theo project, virus scanning cho file, object storage và monitoring.
+- đổi toàn bộ secret/password mẫu;
+- tạo Railway/VPS environment production riêng;
+- bật backup PostgreSQL định kỳ;
+- dùng persistent volume hoặc object storage cho files;
+- cấu hình HTTPS/domain;
+- kiểm tra RBAC bằng tài khoản contractor/reviewer/member;
+- thiết lập monitoring/log retention;
+- kiểm thử migration trên bản sao database trước nâng cấp lớn.
