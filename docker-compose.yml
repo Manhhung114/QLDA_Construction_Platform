@@ -1,0 +1,55 @@
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-qlda_new}
+      POSTGRES_USER: ${POSTGRES_USER:-qlda_new}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-qlda_new_dev}
+    volumes:
+      - qlda_new_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-qlda_new} -d ${POSTGRES_DB:-qlda_new}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [qlda_new_net]
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-qlda_new}:${POSTGRES_PASSWORD:-qlda_new_dev}@db:5432/${POSTGRES_DB:-qlda_new}
+      JWT_SECRET: ${JWT_SECRET:-development-only-change-me}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-ChangeMe123!}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-50}
+      UPLOAD_DIR: /data/uploads
+      CORS_ORIGINS: "*"
+    volumes:
+      - qlda_new_uploads:/data/uploads
+    ports:
+      - "127.0.0.1:${QLDA_NEW_BACKEND_PORT:-8100}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [qlda_new_net]
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    environment:
+      BACKEND_URL: http://backend:8000
+    ports:
+      - "127.0.0.1:${QLDA_NEW_FRONTEND_PORT:-3001}:3000"
+    depends_on: [backend]
+    networks: [qlda_new_net]
+
+volumes:
+  qlda_new_pgdata:
+  qlda_new_uploads:
+
+networks:
+  qlda_new_net:
+    name: qlda_new_net
