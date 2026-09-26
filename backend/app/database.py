@@ -7,7 +7,8 @@ DATABASE_URL = os.getenv(
     "postgresql+psycopg://qlda:qlda@db:5432/qlda_new",
 )
 
-engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+engine = create_engine(DATABASE_URL, pool_pre_ping=True, connect_args=connect_args)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
