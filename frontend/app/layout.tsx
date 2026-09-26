@@ -1,5 +1,3 @@
-import './globals.css';
-import Link from 'next/link';
-import {modules} from '@/lib/modules';
+import './globals.css';import './forms.css';import Link from 'next/link';import {modules} from '@/lib/modules';
 export const metadata={title:'QLDA Construction Platform',description:'Construction Project Management Platform'};
 export default function RootLayout({children}:{children:React.ReactNode}){return <html lang="vi"><body><div className="shell"><aside className="sidebar"><div className="brand"><b>QLDA</b><span>Construction Platform</span></div><nav><Link href="/">⌂ Tổng quan</Link>{modules.map(m=><Link key={m.slug} href={`/modules/${m.slug}`}>{m.icon} {m.name}</Link>)}</nav></aside><main className="main"><header><div><b>QLDA Construction Platform</b><small>Enterprise Construction PM</small></div><div className="env">V1.0</div></header>{children}</main></div></body></html>}
